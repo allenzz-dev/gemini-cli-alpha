@@ -366,7 +366,7 @@ function VirtualizedList<T>(
   const pendingScrollTopRef = useRef<number | null>(null);
   useEffect(() => {
     pendingScrollTopRef.current = null;
-  });
+  }, [scrollAnchor]);
 
   useImperativeHandle(
     ref,
