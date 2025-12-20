@@ -6,8 +6,11 @@
 
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { writeFileSync, readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { join, resolve, dirname } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { TestRig } from './test-helper.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // BOM encoders
 const utf8BOM = (s: string) =>
@@ -119,8 +122,8 @@ describe('BOM end-to-end integraion', () => {
 
   it('Can describe a PNG file', async () => {
     const imagePath = resolve(
-      process.cwd(),
-      'docs/assets/gemini-screenshot.png',
+      __dirname,
+      '../docs/assets/gemini-screenshot.png',
     );
     const imageContent = readFileSync(imagePath);
     const filename = 'gemini-screenshot.png';

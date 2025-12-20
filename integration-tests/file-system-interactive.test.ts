@@ -40,7 +40,7 @@ describe('Interactive file system', () => {
     await run.sendKeys('\r');
 
     const readCall = await rig.waitForToolCall('read_file', 30000);
-    expect(readCall, 'Expected to find a read_file tool call').toBe(true);
+    expect(readCall, 'Expected to find a read_file tool call').toBeTruthy();
 
     // Step 2: Write the file
     const writePrompt = `now change the version to 1.0.1 in the file`;

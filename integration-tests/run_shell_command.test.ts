@@ -401,7 +401,7 @@ describe('run_shell_command', () => {
         ToolLogs: rig.readToolLogs(),
       });
     }
-    expect(foundToolCall).toBe(true);
+    expect(foundToolCall).toBeTruthy();
 
     const toolLogs = rig
       .readToolLogs()
@@ -587,7 +587,7 @@ describe('run_shell_command', () => {
         ToolLogs: rig.readToolLogs(),
       });
     }
-    expect(foundToolCall).toBe(true);
+    expect(foundToolCall).toBeTruthy();
 
     const toolLogs = rig
       .readToolLogs()

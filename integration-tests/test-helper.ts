@@ -330,6 +330,25 @@ export class TestRig {
       ide: { enabled: false, hasSeenNudge: true },
       ...options.settings, // Allow tests to override/add settings
     };
+
+    // FORCE telemetry settings for integration tests
+    if (!settings.telemetry) {
+      settings.telemetry = {
+        enabled: true,
+        target: 'local',
+        otlpEndpoint: '',
+        outfile: telemetryPath,
+        logPrompts: true,
+      };
+    } else {
+      settings.telemetry.enabled = true;
+      settings.telemetry.target = 'local';
+      settings.telemetry.outfile = telemetryPath;
+      if (settings.telemetry.logPrompts === undefined) {
+        settings.telemetry.logPrompts = true;
+      }
+    }
+
     writeFileSync(
       join(geminiDir, 'settings.json'),
       JSON.stringify(settings, null, 2),
@@ -406,6 +425,14 @@ export class TestRig {
 
     if (options.stdin) {
       execOptions.input = options.stdin;
+    }
+
+    if (env['VERBOSE'] === 'true') {
+      console.log('RUNNING CLI with args:', commandArgs);
+      console.log('CWD:', this.testDir!);
+      // console.log('ENV:', env); // Might be too much, but let's see some key ones
+      console.log('GEMINI_SETTINGS_DIR:', env['GEMINI_SETTINGS_DIR']);
+      console.log('GEMINI_TELEMETRY_DIR:', env['GEMINI_TELEMETRY_DIR']);
     }
 
     const child = spawn(command, commandArgs, {
@@ -646,29 +673,36 @@ export class TestRig {
 
   async waitForToolCall(
     toolName: string,
-    timeout?: number,
-    matchArgs?: (args: string) => boolean,
+    timeout: number = 30000,
+    interval: number = 100,
   ) {
-    // Use environment-specific timeout
-    if (!timeout) {
-      timeout = getDefaultTimeout();
+    if (env['VERBOSE'] === 'true') {
+      console.log(`POLL: Waiting for tool call '${toolName}'...`);
     }
-
-    // Wait for telemetry to be ready before polling for tool calls
-    await this.waitForTelemetryReady();
-
-    return poll(
+    await poll(
       () => {
         const toolLogs = this.readToolLogs();
-        return toolLogs.some(
-          (log) =>
-            log.toolRequest.name === toolName &&
-            (matchArgs?.call(this, log.toolRequest.args) ?? true),
-        );
+        if (env['VERBOSE'] === 'true' && toolLogs.length > 0) {
+          console.log(
+            'POLL: Current tool logs:',
+            JSON.stringify(toolLogs, null, 2),
+          );
+        }
+        return toolLogs.some((l) => l.toolRequest.name === toolName);
       },
       timeout,
-      100,
+      interval,
     );
+
+    const logs = this.readToolLogs();
+    const foundLog = logs.find((l) => l.toolRequest.name === toolName);
+    if (!foundLog && env['VERBOSE'] === 'true') {
+      console.log(
+        `POLL: Tool call ${toolName} NOT FOUND after timeout. Available calls:`,
+        logs.map((l) => l.toolRequest.name),
+      );
+    }
+    return foundLog;
   }
 
   async expectToolCallSuccess(
@@ -856,10 +890,18 @@ export class TestRig {
     const logFilePath = join(this.testDir!, 'telemetry.log');
 
     if (!logFilePath || !fs.existsSync(logFilePath)) {
+      if (env['VERBOSE'] === 'true') {
+        console.log(`TELEMETRY: Log file NOT FOUND at ${logFilePath}`);
+      }
       return [];
     }
 
     const content = readFileSync(logFilePath, 'utf-8');
+    if (env['VERBOSE'] === 'true' && content.length > 0) {
+      console.log(
+        `TELEMETRY: Read ${content.length} bytes from ${logFilePath}`,
+      );
+    }
 
     // Split the content into individual JSON objects
     // They are separated by "}\n{"
@@ -1047,8 +1089,18 @@ export class TestRig {
 
     const run = new InteractiveRun(ptyProcess);
     this._interactiveRuns.push(run);
-    // Wait for the app to be ready
-    await run.expectText('  Type your message or @path/to/file', 30000);
+    // Wait for the app to be ready - either the main prompt or the auth spinner
+    await poll(
+      () => {
+        const out = stripAnsi(run.output).toLowerCase();
+        return (
+          out.includes('type your message or @path/to/file') ||
+          out.includes('waiting for auth')
+        );
+      },
+      30000,
+      200,
+    );
     return run;
   }
 
@@ -1075,12 +1127,30 @@ export class TestRig {
         logData.attributes &&
         logData.attributes['event.name'] === 'gemini_cli.hook_call'
       ) {
+        let hookInput = logData.attributes.hook_input ?? {};
+        if (typeof hookInput === 'string') {
+          try {
+            hookInput = JSON.parse(hookInput);
+          } catch {
+            // Keep as string if not valid JSON
+          }
+        }
+
+        let hookOutput = logData.attributes.hook_output ?? {};
+        if (typeof hookOutput === 'string') {
+          try {
+            hookOutput = JSON.parse(hookOutput);
+          } catch {
+            // Keep as string if not valid JSON
+          }
+        }
+
         logs.push({
           hookCall: {
             hook_event_name: logData.attributes.hook_event_name ?? '',
             hook_name: logData.attributes.hook_name ?? '',
-            hook_input: logData.attributes.hook_input ?? {},
-            hook_output: logData.attributes.hook_output ?? {},
+            hook_input: hookInput as Record<string, unknown>,
+            hook_output: hookOutput as Record<string, unknown>,
             exit_code: logData.attributes.exit_code ?? 0,
             stdout: logData.attributes.stdout ?? '',
             stderr: logData.attributes.stderr ?? '',

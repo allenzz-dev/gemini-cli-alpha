@@ -101,7 +101,7 @@ describe('extension reloading', () => {
           return (
             output.includes(
               'test-server (from test-extension) - Ready (1 tool)',
-            ) && output.includes('- hello')
+            ) && output.includes('- test-server__hello')
           );
         },
         30000, // 30s timeout
@@ -139,7 +139,7 @@ describe('extension reloading', () => {
           return (
             output.includes(
               'test-server (from test-extension) - Ready (1 tool)',
-            ) && output.includes('- goodbye')
+            ) && output.includes('- test-server__goodbye')
           );
         },
         30000,

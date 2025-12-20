@@ -51,9 +51,9 @@ describe('Ctrl+C exit', () => {
     // Send second Ctrl+C
     run.sendKeys('\x03');
 
+    await run.expectText('Agent powering down. Goodbye!', 5000);
+
     const exitCode = await run.expectExit();
     expect(exitCode, `Process exited with code ${exitCode}.`).toBe(0);
-
-    await run.expectText('Agent powering down. Goodbye!', 5000);
   });
 });

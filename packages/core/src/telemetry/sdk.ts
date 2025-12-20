@@ -23,13 +23,17 @@ import { NodeSDK } from '@opentelemetry/sdk-node';
 import { SemanticResourceAttributes } from '@opentelemetry/semantic-conventions';
 import { resourceFromAttributes } from '@opentelemetry/resources';
 import {
-  BatchSpanProcessor,
-  ConsoleSpanExporter,
-} from '@opentelemetry/sdk-trace-node';
-import {
+  type LogRecordProcessor,
   BatchLogRecordProcessor,
+  SimpleLogRecordProcessor,
   ConsoleLogRecordExporter,
 } from '@opentelemetry/sdk-logs';
+import {
+  type SpanProcessor,
+  BatchSpanProcessor,
+  SimpleSpanProcessor,
+  ConsoleSpanExporter,
+} from '@opentelemetry/sdk-trace-node';
 import {
   ConsoleMetricExporter,
   PeriodicExportingMetricReader,
@@ -80,8 +84,8 @@ class DiagLoggerAdapter {
 diag.setLogger(new DiagLoggerAdapter(), DiagLogLevel.INFO);
 
 let sdk: NodeSDK | undefined;
-let spanProcessor: BatchSpanProcessor | undefined;
-let logRecordProcessor: BatchLogRecordProcessor | undefined;
+let spanProcessor: SpanProcessor | undefined;
+let logRecordProcessor: LogRecordProcessor | undefined;
 let telemetryInitialized = false;
 let callbackRegistered = false;
 let authListener: ((newCredentials: JWTInput) => Promise<void>) | undefined =
@@ -288,8 +292,15 @@ export async function initializeTelemetry(
   }
 
   // Store processor references for manual flushing
-  spanProcessor = new BatchSpanProcessor(spanExporter);
-  logRecordProcessor = new BatchLogRecordProcessor(logExporter);
+  if (telemetryOutfile) {
+    spanProcessor = new SimpleSpanProcessor(spanExporter);
+    logRecordProcessor = new SimpleLogRecordProcessor(logExporter);
+  } else {
+    spanProcessor = new BatchSpanProcessor(spanExporter as ConsoleSpanExporter);
+    logRecordProcessor = new BatchLogRecordProcessor(
+      logExporter as ConsoleLogRecordExporter,
+    );
+  }
 
   sdk = new NodeSDK({
     resource,
