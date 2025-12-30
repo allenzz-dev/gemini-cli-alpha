@@ -6,6 +6,7 @@
 
 import type { BrowserManager } from './browserManager.js';
 import { debugLogger } from '../../utils/debugLogger.js';
+import type { Page } from 'playwright';
 
 export interface ToolResult {
   output?: string;
@@ -16,13 +17,8 @@ export interface ToolResult {
 export class BrowserTools {
   constructor(private browserManager: BrowserManager) {}
 
-  async showOverlay(message: string): Promise<void> {
-    await this.browserManager.getMcpClient();
-    // Interpolate the message directly into the script since MCP evaluate_script
-    // doesn't support passing arbitrary primitive args.
-    const safeMessage = JSON.stringify(message);
-    const scriptWithMsg = `(() => {
-      const msg = ${safeMessage};
+  async showOverlay(page: Page, message: string): Promise<void> {
+    await page.evaluate((msg: string) => {
       let overlay = document.getElementById('gemini-overlay');
       if (!overlay) {
         overlay = document.createElement('div');
@@ -45,28 +41,22 @@ export class BrowserTools {
         document.body.appendChild(overlay);
       }
       overlay.innerText = msg;
-    })()`;
-
-    const client = await this.browserManager.getMcpClient();
-    try {
-      await client.callTool('evaluate_script', { function: scriptWithMsg });
-    } catch (err) {
-      debugLogger.log(`Failed to show overlay: ${err}`);
-    }
+    }, message);
   }
 
   async updateBorderOverlay(options: {
     active: boolean;
     capturing: boolean;
   }): Promise<void> {
-    const safeOptions = JSON.stringify(options);
-    const script = `(() => {
-        const { active, capturing } = ${safeOptions};
+    try {
+      const page = await this.browserManager.getPage();
+      await page.evaluate((opts: { active: boolean; capturing: boolean }) => {
+        const { active, capturing } = opts;
         // 1. Inject CSS if not present
         if (!document.getElementById('gemini-border-style')) {
           const style = document.createElement('style');
           style.id = 'gemini-border-style';
-          style.textContent = \`
+          style.textContent = `
             :root {
               --color-blue: rgb(0, 102, 255);
               --color-blue-glow: rgba(0, 102, 255, 0.9);
@@ -99,7 +89,7 @@ export class BrowserTools {
             #preact-border-container.animate-breathing {
               animation: breathe 3s ease-in-out infinite;
             }
-          \`;
+          `;
           document.head.appendChild(style);
         }
 
@@ -124,32 +114,27 @@ export class BrowserTools {
           container.classList.add('hidden');
           container.classList.remove('animate-breathing');
         }
-    })()`;
-    const client = await this.browserManager.getMcpClient();
-    try {
-      await client.callTool('evaluate_script', { function: script });
+      }, options);
     } catch (err) {
       debugLogger.log(`Failed to update border overlay: ${err}`);
     }
   }
 
   async removeOverlay(): Promise<void> {
-    const script = `(() => {
+    try {
+      const page = await this.browserManager.getPage();
+      await page.evaluate(() => {
         const overlay = document.getElementById('gemini-overlay');
         if (overlay) {
           overlay.remove();
         }
-    })()`;
-    const client = await this.browserManager.getMcpClient();
-    try {
-      await client.callTool('evaluate_script', { function: script });
+      });
     } catch (err) {
       debugLogger.log(`Failed to remove overlay: ${err}`);
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async moveMouse(page: any, x: number, y: number): Promise<void> {
+  private async moveMouse(page: Page, x: number, y: number): Promise<void> {
     await page.evaluate(
       ({ x, y }: { x: number; y: number }) => {
         let cursor = document.getElementById('gemini-cursor');
@@ -184,7 +169,7 @@ export class BrowserTools {
   }
 
   private async showScrollIndicator(
-    page: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    page: Page,
     direction: string,
   ): Promise<void> {
     await page.evaluate((dir: string) => {
@@ -228,8 +213,7 @@ export class BrowserTools {
     await new Promise((resolve) => setTimeout(resolve, 500));
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  private async animateClick(page: any): Promise<void> {
+  private async animateClick(page: Page): Promise<void> {
     await page.evaluate(() => {
       const cursor = document.getElementById('gemini-cursor');
       if (cursor) {
@@ -250,7 +234,7 @@ export class BrowserTools {
   }
 
   private async getElementLabel(
-    page: any, // eslint-disable-line @typescript-eslint/no-explicit-any
+    page: Page,
     x: number,
     y: number,
   ): Promise<string | null> {
@@ -276,9 +260,9 @@ export class BrowserTools {
   async clickAt(x: number, y: number): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
     try {
-      const viewport = await this.getViewportSize();
+      const viewport = await this.getViewportSize(page);
       if (!viewport) {
-        return { error: 'Viewport not available' };
+        return { error: 'Viewport not available', url: page.url() };
       }
       const actualX = (x / 1000) * viewport.width;
       const actualY = (y / 1000) * viewport.height;
@@ -287,13 +271,13 @@ export class BrowserTools {
 
       const label = await this.getElementLabel(page, actualX, actualY);
       const msg = label ? `Clicking "${label}"` : `Clicking at ${x}, ${y}`;
-      await this.showOverlay(msg);
+      await this.showOverlay(page, msg);
 
       await page.mouse.click(actualX, actualY);
       await this.animateClick(page);
       await new Promise((resolve) => setTimeout(resolve, 500));
       await this.removeOverlay();
-      return { output: 'Clicked' };
+      return { output: 'Clicked', url: page.url() };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       return { error: `Failed to click at ${x}, ${y}: ${message}` };
@@ -309,9 +293,9 @@ export class BrowserTools {
   ): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
     try {
-      const viewport = await this.getViewportSize();
+      const viewport = await this.getViewportSize(page);
       if (!viewport) {
-        return { error: 'Viewport not available' };
+        return { error: 'Viewport not available', url: page.url() };
       }
       const actualX = (x / 1000) * viewport.width;
       const actualY = (y / 1000) * viewport.height;
@@ -322,7 +306,7 @@ export class BrowserTools {
       const msg = label
         ? `Typing "${text}" into ${label}`
         : `Typing "${text}" at ${x}, ${y}`;
-      await this.showOverlay(msg);
+      await this.showOverlay(page, msg);
 
       await page.mouse.click(actualX, actualY);
       await this.animateClick(page);
@@ -338,7 +322,7 @@ export class BrowserTools {
       }
       await new Promise((resolve) => setTimeout(resolve, 500));
       await this.removeOverlay();
-      return { output: `Typed "${text}"` };
+      return { output: `Typed "${text}"`, url: page.url() };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       return { error: `Failed to type at ${x}, ${y}: ${message}` };
@@ -353,10 +337,13 @@ export class BrowserTools {
   ): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
     try {
-      await this.showOverlay(`Dragging from ${x},${y} to ${destX},${destY}`);
-      const viewport = await this.getViewportSize();
+      await this.showOverlay(
+        page,
+        `Dragging from ${x},${y} to ${destX},${destY}`,
+      );
+      const viewport = await this.getViewportSize(page);
       if (!viewport) {
-        return { error: 'Viewport not available' };
+        return { error: 'Viewport not available', url: page.url() };
       }
       const actualX = (x / 1000) * viewport.width;
       const actualY = (y / 1000) * viewport.height;
@@ -374,16 +361,19 @@ export class BrowserTools {
       await this.animateClick(page);
       await this.removeOverlay();
 
-      return { output: `Dragged from ${x},${y} to ${destX},${destY}` };
+      return {
+        output: `Dragged from ${x},${y} to ${destX},${destY}`,
+        url: page.url(),
+      };
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : String(e);
       return { error: `Failed to drag: ${message}` };
     }
   }
 
-  // Make sure we expose viewport size helper if needed by Agent
-  async getViewportSize(): Promise<{ width: number; height: number } | null> {
-    const page = await this.browserManager.getPage();
+  async getViewportSize(
+    page: Page,
+  ): Promise<{ width: number; height: number } | null> {
     const viewport = page.viewportSize();
     if (viewport) {
       return viewport;
@@ -397,7 +387,8 @@ export class BrowserTools {
 
   async openWebBrowser(): Promise<ToolResult> {
     await this.browserManager.getMcpClient();
-    return { output: 'Browser opened' };
+    const page = await this.browserManager.getPage();
+    return { output: 'Browser opened', url: page.url() };
   }
 
   async scrollDocument(
@@ -406,7 +397,8 @@ export class BrowserTools {
   ): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
     await this.showScrollIndicator(page, direction);
-    await this.showOverlay(`Scrolling ${direction}`);
+    await this.showOverlay(page, `Scrolling ${direction}`);
+
     let deltaX = 0;
     let deltaY = 0;
 
@@ -415,32 +407,37 @@ export class BrowserTools {
     if (direction === 'left') deltaX = -amount;
     if (direction === 'right') deltaX = amount;
 
-    // Smooth scroll implementation
-    const steps = 10;
-    const stepDelay = 30;
-    const stepX = deltaX / steps;
-    const stepY = deltaY / steps;
+    await page.evaluate(
+      (args: { dx: number; dy: number }) => {
+        window.scrollBy({
+          top: args.dy,
+          left: args.dx,
+          behavior: 'smooth',
+        });
+      },
+      { dx: deltaX, dy: deltaY },
+    );
 
-    for (let i = 0; i < steps; i++) {
-      await page.mouse.wheel(stepX, stepY);
-      await new Promise((resolve) => setTimeout(resolve, stepDelay));
-    }
-
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    // Wait for smooth scroll to complete
+    await new Promise((resolve) => setTimeout(resolve, 500));
     await this.removeOverlay();
-    return { output: `Scrolled ${direction} by ${amount}` };
+    return { output: `Scrolled ${direction} by ${amount}`, url: page.url() };
   }
 
   async pagedown(): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
-    await page.evaluate(() => window.scrollBy(0, window.innerHeight));
-    return { output: 'Paged down' };
+    await this.showOverlay(page, 'Pressing PageDown');
+    await page.keyboard.press('PageDown');
+    await this.removeOverlay();
+    return { output: 'Pressed PageDown', url: page.url() };
   }
 
   async pageup(): Promise<ToolResult> {
     const page = await this.browserManager.getPage();
-    await page.evaluate(() => window.scrollBy(0, -window.innerHeight));
-    return { output: 'Paged up' };
+    await this.showOverlay(page, 'Pressing PageUp');
+    await page.keyboard.press('PageUp');
+    await this.removeOverlay();
+    return { output: 'Pressed PageUp', url: page.url() };
   }
 
   async takeSnapshot(verbose: boolean = false): Promise<ToolResult> {

@@ -6,8 +6,12 @@
 
 import { debugLogger } from '../../utils/debugLogger.js';
 import type { Config } from '../../config/config.js';
+import module from 'node:module';
+import path from 'node:path';
+import fs from 'node:fs';
+import { Storage } from '../../config/storage.js';
 import type { McpClient } from '../../tools/mcp-client.js';
-import { chromium, type Browser, type Page } from 'playwright';
+import { type Browser, type Page } from 'playwright';
 
 import { getFreePort } from '../../utils/net.js';
 
@@ -31,10 +35,10 @@ export class BrowserManager {
     return this.mcpClient;
   }
 
-  async getPage(): Promise<Page> {
+  async getPage(printOutput?: (message: string) => void): Promise<Page> {
     // Always ensure we have a Playwright page for visual operations
     if (!this.page) {
-      await this.ensureBrowserLaunched();
+      await this.ensureBrowserLaunched(printOutput);
     }
     if (!this.page) {
       throw new Error('Browser page not available');
@@ -47,7 +51,7 @@ export class BrowserManager {
     await this.ensureBrowserLaunched();
   }
 
-  private async ensureBrowserLaunched() {
+  private async ensureBrowserLaunched(printOutput?: (message: string) => void) {
     // Get a free port if we haven't already
     if (!this.remoteDebuggingPort) {
       this.remoteDebuggingPort = await getFreePort();
@@ -56,7 +60,7 @@ export class BrowserManager {
 
     // Launch Browser via Playwright (if not running)
     if (!this.browser || !this.browser.isConnected()) {
-      await this.launchBrowser(port);
+      await this.launchBrowser(port, printOutput);
     }
 
     // Connect MCP Client (if not connected)
@@ -65,19 +69,46 @@ export class BrowserManager {
     }
   }
 
-  private async launchBrowser(port: number) {
+  private async launchBrowser(
+    port: number,
+    printOutput?: (message: string) => void,
+  ) {
+    let chromium;
+    try {
+      const playwright = await import('playwright');
+      chromium = playwright.chromium || playwright.default?.chromium;
+    } catch (_e) {
+      try {
+        const requireUser = module.createRequire(
+          path.join(process.cwd(), 'package.json'),
+        );
+        const playwrightPath = requireUser.resolve('playwright');
+        const playwright = await import(playwrightPath);
+        chromium = playwright.chromium || playwright.default?.chromium;
+      } catch (_e2) {
+        // Fallback: Managed installation in ~/.gemini/dependencies
+        chromium = await this.ensureManagedPlaywrightAvailable(printOutput);
+      }
+    }
     debugLogger.log('Launching Chrome via Playwright...');
     const settings = this.config.browserAgentSettings;
     const headless = settings?.headless ?? false;
 
     // Launch with remote debugging for MCP to attach
     // Use fixed 1024x1024 window to provide consistent viewport
-    this.browser = await chromium.launch({
-      headless,
-      args: [`--remote-debugging-port=${port}`, '--window-size=1024,1024'],
-    });
-
-    const context = await this.browser.newContext({
+    try {
+      this.browser = await chromium.launch({
+        headless,
+        args: [`--remote-debugging-port=${port}`, '--window-size=1024,1024'],
+      });
+    } catch (error: unknown) {
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
+      const msg = `Failed to launch browser: ${errorMessage}. Executable path: ${chromium.executablePath()}`;
+      debugLogger.error(msg);
+      throw error;
+    }
+    const context = await this.browser!.newContext({
       viewport: null, // Let window size dictate viewport. Fallback handles dimension retrieval.
     });
     this.page = await context.newPage();
@@ -128,5 +159,134 @@ export class BrowserManager {
     }
 
     this.mcpClient = client;
+  }
+
+  private async installPlaywright(
+    cwd: string,
+    log?: (message: string) => void,
+  ): Promise<void> {
+    // We use spawn to inherit stdio so user sees progress
+    const { spawn } = await import('node:child_process');
+
+    // Pre-flight check for npm
+    await new Promise<void>((resolve, reject) => {
+      const check = spawn('npm', ['--version'], {
+        stdio: 'ignore',
+        shell: true,
+      });
+      check.on('close', (code) => {
+        if (code === 0) resolve();
+        else
+          reject(
+            new Error(
+              'npm is required to install the browser agent components, but it was not found in your PATH.',
+            ),
+          );
+      });
+      check.on('error', () =>
+        reject(
+          new Error(
+            'npm is required to install the browser agent components, but it was not found in your PATH.',
+          ),
+        ),
+      );
+    });
+
+    const installPackage = () =>
+      new Promise<void>((resolve, reject) => {
+        const npm = spawn('npm', ['install', 'playwright'], {
+          cwd,
+          stdio: 'inherit',
+          shell: true,
+        });
+        npm.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(
+              new Error(`npm install playwright exited with code ${code}`),
+            );
+          }
+        });
+        npm.on('error', reject);
+      });
+
+    const installBrowsers = () =>
+      new Promise<void>((resolve, reject) => {
+        const npx = spawn('npx', ['playwright', 'install', 'chromium'], {
+          cwd,
+          stdio: 'inherit',
+          shell: true,
+        });
+        npx.on('close', (code) => {
+          if (code === 0) {
+            resolve();
+          } else {
+            reject(
+              new Error(
+                `npx playwright install chromium exited with code ${code}`,
+              ),
+            );
+          }
+        });
+        npx.on('error', reject);
+      });
+
+    let message =
+      'Playwright is required for the Browser Agent. Installing to ' +
+      cwd +
+      '...\n';
+    if (log) log(message);
+    else debugLogger.log(message);
+
+    await installPackage();
+
+    message += 'Installing Chromium browser...\n';
+    if (log) log(message);
+    else debugLogger.log('Installing Chromium browser...');
+
+    await installBrowsers();
+
+    message += 'Playwright installation complete.\n';
+    if (log) log(message);
+    else debugLogger.log('Playwright installation complete.');
+  }
+
+  private async ensureManagedPlaywrightAvailable(
+    log?: (message: string) => void,
+  ): Promise<unknown> {
+    const depDir = Storage.getGlobalDependenciesDir();
+    const depPkgJson = path.join(depDir, 'package.json');
+
+    if (!fs.existsSync(depDir)) {
+      fs.mkdirSync(depDir, { recursive: true });
+    }
+    if (!fs.existsSync(depPkgJson)) {
+      fs.writeFileSync(depPkgJson, '{}');
+    }
+
+    const requireGlobal = module.createRequire(depPkgJson);
+    try {
+      const playwrightPath = requireGlobal.resolve('playwright');
+      const playwright = await import(playwrightPath);
+      return playwright.chromium || playwright.default?.chromium;
+    } catch (_e3) {
+      debugLogger.log('Playwright not found globally. Installing...');
+      try {
+        await this.installPlaywright(depDir, log);
+
+        const playwrightPath = requireGlobal.resolve('playwright');
+        const playwright = await import(playwrightPath);
+        return playwright.chromium || playwright.default?.chromium;
+      } catch (installError: unknown) {
+        const errorMessage =
+          installError instanceof Error
+            ? installError.message
+            : String(installError);
+        throw new Error(
+          `Failed to install Playwright in ${depDir}: ${errorMessage}`,
+        );
+      }
+    }
   }
 }

@@ -222,14 +222,14 @@ const semanticTools: Tool[] = [
       {
         name: 'evaluate_script',
         description:
-          'Executes a JavaScript function string on the page. Returns the result.',
+          'Evaluate a JavaScript function inside the currently selected page. Returns the response as JSON so returned values have to JSON-serializable.',
         parameters: {
           type: Type.OBJECT,
           properties: {
             function: {
               type: Type.STRING,
               description:
-                'The JavaScript code to execute. If "args" are provided, this MUST be a valid function expression (e.g., "() => { ... }"). If "args" are NOT provided, this can be a function expression OR a block of statements (script).',
+                'A JavaScript function declaration to be executed by the tool in the currently selected page. Example without arguments: `() => { return document.title }` or `async () => { return await fetch("example.com") }`. Example with arguments: `(el) => { return el.innerText; }`',
             },
             args: {
               type: Type.ARRAY,
@@ -369,7 +369,10 @@ const visualTools: Tool[] = [
               type: Type.STRING,
               enum: ['up', 'down', 'left', 'right'],
             },
-            amount: { type: Type.NUMBER },
+            amount: {
+              type: Type.NUMBER,
+              description: 'Pixels to scroll (e.g. 500)',
+            },
           },
           required: ['direction', 'amount'],
         },
@@ -441,61 +444,6 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
       if (printOutput) printOutput(msg); // Fatal error should be shown
       return msg;
     }
-
-    // Helper to capture screenshot on demand (for visual delegate or fallback)
-    const captureScreenshot = async (): Promise<string> => {
-      try {
-        const client = await this.browserManager.getMcpClient();
-        let screenshotBase64 = '';
-
-        // 1. Try MCP Screenshot
-        try {
-          const screenshotResult = await client.callTool('take_screenshot', {
-            format: 'jpeg',
-            quality: 50,
-          });
-
-          if (screenshotResult.content) {
-            for (const item of screenshotResult.content) {
-              // eslint-disable-next-line @typescript-eslint/no-explicit-any
-              if (item.type === 'resource' && (item as any).resource?.blob) {
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                screenshotBase64 = (item as any).resource.blob;
-              }
-            }
-          }
-        } catch {
-          // MCP screenshot might fail or not be supported, ignore and try fallback
-        }
-
-        // 2. Fallback to Playwright
-        if (!screenshotBase64) {
-          const page = await this.browserManager.getPage();
-          await page.bringToFront();
-
-          await this.browserTools.updateBorderOverlay({
-            active: true,
-            capturing: true,
-          });
-
-          const buffer = await page.screenshot({
-            type: 'jpeg',
-            quality: 50,
-            scale: 'css',
-          });
-          screenshotBase64 = buffer.toString('base64');
-
-          await this.browserTools.updateBorderOverlay({
-            active: true,
-            capturing: false,
-          });
-        }
-        return screenshotBase64;
-      } catch (e) {
-        debugLogger.log(`Warning: Screenshot capture failed: ${e}`);
-        return '';
-      }
-    };
 
     await this.browserTools.updateBorderOverlay({
       active: true,
@@ -867,7 +815,7 @@ CRITICAL: When you have fully completed the user's task, you MUST call the compl
               }
 
               case 'delegate_to_visual_agent': {
-                const screen = await captureScreenshot();
+                const screen = await this.captureScreenshot();
                 const visualRes = await this.runVisualDelegate(
                   (fnArgs['instruction'] as string) || '',
                   screen,
@@ -1150,17 +1098,8 @@ Return a concise summary of your actions when done.
       // We need a screenshot!
       let newScreenshot = '';
       try {
-        // We reuse the MCP client from parent manager
-        const client = await this.browserManager.getMcpClient();
-        const ssResult = await client.callTool('take_screenshot', {
-          format: 'png',
-        });
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        const imgPart = (ssResult.content as any[])?.find(
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          (p: any) => p.type === 'image',
-        );
-        if (imgPart) newScreenshot = imgPart.data || '';
+        // Use captureScreenshot helper which now defaults to Playwright CSS scale
+        newScreenshot = await this.captureScreenshot();
       } catch {
         /* ignore */
       }
@@ -1191,5 +1130,32 @@ Return a concise summary of your actions when done.
     return {
       output: `Visual Agent reached max steps.\nActions Taken:\n${actionHistory.join('\n')}`,
     };
+  }
+
+  // Helper to capture screenshot on demand (for visual delegate or fallback)
+  private async captureScreenshot(): Promise<string> {
+    try {
+      const page = await this.browserManager.getPage();
+      await page.bringToFront();
+
+      await this.browserTools.updateBorderOverlay({
+        active: true,
+        capturing: true,
+      });
+
+      // TODO: Consider using Playwright's CSS scale option and jpeg quality to reduce file size
+      const buffer = await page.screenshot();
+      const screenshotBase64 = buffer.toString('base64');
+
+      await this.browserTools.updateBorderOverlay({
+        active: true,
+        capturing: false,
+      });
+
+      return screenshotBase64;
+    } catch (e) {
+      debugLogger.log(`Warning: Screenshot capture failed: ${e}`);
+      return '';
+    }
   }
 }
