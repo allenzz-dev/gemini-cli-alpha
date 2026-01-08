@@ -18,12 +18,14 @@
 import type { Config } from '../../config/config.js';
 import type { LocalAgentDefinition } from '../types.js';
 import type { MessageBus } from '../../confirmation-bus/message-bus.js';
+import type { AnyDeclarativeTool } from '../../tools/tools.js';
 import { BrowserManager } from './browserManager.js';
 import {
   BrowserAgentDefinition,
   type BrowserTaskResultSchema,
 } from './browserAgentDefinition.js';
 import { createMcpDeclarativeTools } from './mcpToolWrapper.js';
+import { createDelegateToVisualAgentTool } from './delegateToVisualAgent.js';
 import { debugLogger } from '../../utils/debugLogger.js';
 
 /**
@@ -62,16 +64,26 @@ export async function createBrowserAgentDefinition(
   // These tools dispatch to browserManager's isolated client
   const mcpTools = await createMcpDeclarativeTools(browserManager, messageBus);
 
+  // Create visual agent delegation tool
+  const visualDelegationTool = createDelegateToVisualAgentTool(
+    browserManager,
+    config,
+    messageBus,
+  );
+
+  // Combine all tools
+  const allTools: AnyDeclarativeTool[] = [...mcpTools, visualDelegationTool];
+
   debugLogger.log(
-    `Created ${mcpTools.length} isolated MCP tools for browser agent: ` +
-      mcpTools.map((t) => t.name).join(', '),
+    `Created ${allTools.length} tools for browser agent: ` +
+      allTools.map((t) => t.name).join(', '),
   );
 
   // Create configured definition with tools
   const definition: LocalAgentDefinition<typeof BrowserTaskResultSchema> = {
     ...BrowserAgentDefinition,
     toolConfig: {
-      tools: mcpTools,
+      tools: allTools,
     },
   };
 
