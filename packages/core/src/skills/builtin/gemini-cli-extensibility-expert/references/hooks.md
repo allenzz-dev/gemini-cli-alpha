@@ -15,6 +15,7 @@ quickly.**
   "BeforeTool": [
     {
       "matcher": "read_file",
+      "sequential": true,
       "hooks": [
         {
           "type": "command",
@@ -29,6 +30,11 @@ quickly.**
 
 - **matcher** (string, optional): A glob pattern to filter when the hooks run
   (e.g., matching a tool name).
+- **sequential** (boolean, optional): If `true`, hooks in the array run one
+  after another, and the output of one hook is applied to the input of the next.
+  This enables **hook chaining** where multiple scripts can cooperatively modify
+  the same prompt or tool call. If `false` (default), hooks run in parallel and
+  all receive the original input.
 
 ## Supported Events
 
