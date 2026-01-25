@@ -21,6 +21,7 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js';
 import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js';
 import { debugLogger } from '../../utils/debugLogger.js';
+import { ActionRateLimiter } from './browserSecurity.js';
 import type { Config } from '../../config/config.js';
 
 // Pin chrome-devtools-mcp version for reproducibility
@@ -65,8 +66,15 @@ export class BrowserManager {
   private rawMcpClient: Client | undefined;
   private mcpTransport: StdioClientTransport | undefined;
   private discoveredTools: McpTool[] = [];
+  private rateLimiter: ActionRateLimiter;
 
-  constructor(private config: Config) {}
+  constructor(private config: Config) {
+    const browserConfig = config.getBrowserAgentConfig();
+    this.rateLimiter = new ActionRateLimiter({
+      maxActionsPerMinute: browserConfig.customConfig.maxActionsPerTask ?? 100,
+      maxNavigationsPerMinute: 10,
+    });
+  }
 
   /**
    * Gets the raw MCP SDK Client for direct tool calls.
@@ -103,6 +111,25 @@ export class BrowserManager {
     toolName: string,
     args: Record<string, unknown>,
   ): Promise<McpToolCallResult> {
+    // Check rate limits before executing
+    const isNavigation = toolName === 'navigate' || toolName === 'goto';
+    const allowed = isNavigation
+      ? this.rateLimiter.recordNavigation()
+      : this.rateLimiter.recordAction();
+
+    if (!allowed) {
+      const limitType = isNavigation ? 'navigation' : 'action';
+      return {
+        content: [
+          {
+            type: 'text',
+            text: `Rate limit exceeded for ${limitType}. Too many actions in a short time.`,
+          },
+        ],
+        isError: true,
+      };
+    }
+
     const client = await this.getRawMcpClient();
     const result = await client.callTool(
       { name: toolName, arguments: args },
@@ -181,15 +208,17 @@ export class BrowserManager {
     );
 
     // Build args for chrome-devtools-mcp
+    const browserConfig = this.config.getBrowserAgentConfig();
+    const sessionMode = browserConfig.customConfig.sessionMode ?? 'isolated';
+
     const mcpArgs = [
       '-y',
       `chrome-devtools-mcp@${CHROME_DEVTOOLS_MCP_VERSION}`,
-      '--isolated',
+      sessionMode === 'existing' ? '--existing' : '--isolated',
       '--experimental-vision',
     ];
 
     // Add optional settings from config
-    const browserConfig = this.config.getBrowserAgentConfig();
     if (browserConfig.customConfig.headless) {
       mcpArgs.push('--headless');
     }
@@ -201,7 +230,7 @@ export class BrowserManager {
     }
 
     debugLogger.log(
-      `Launching chrome-devtools-mcp with args: ${mcpArgs.join(' ')}`,
+      `Launching chrome-devtools-mcp (${sessionMode} mode) with args: ${mcpArgs.join(' ')}`,
     );
 
     // Create stdio transport to npx chrome-devtools-mcp

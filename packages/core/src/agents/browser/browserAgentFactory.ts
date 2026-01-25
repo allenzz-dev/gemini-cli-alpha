@@ -63,16 +63,53 @@ export async function createBrowserAgentDefinition(
   // Create declarative tools from dynamically discovered MCP tools
   // These tools dispatch to browserManager's isolated client
   const mcpTools = await createMcpDeclarativeTools(browserManager, messageBus);
+  const availableToolNames = mcpTools.map((t) => t.name);
 
-  // Create visual agent delegation tool
-  const visualDelegationTool = createDelegateToVisualAgentTool(
-    browserManager,
-    config,
-    messageBus,
+  // Validate required semantic tools are available
+  const requiredSemanticTools = [
+    'click',
+    'fill',
+    'navigate_page',
+    'take_snapshot',
+  ];
+  const missingSemanticTools = requiredSemanticTools.filter(
+    (t) => !availableToolNames.includes(t),
+  );
+  if (missingSemanticTools.length > 0) {
+    debugLogger.warn(
+      `Semantic tools missing (${missingSemanticTools.join(', ')}). ` +
+        'Some browser interactions may not work correctly.',
+    );
+  }
+
+  // Validate required visual tools are available (requires --experimental-vision)
+  const requiredVisualTools = ['click_at', 'type_text'];
+  const missingVisualTools = requiredVisualTools.filter(
+    (t) => !availableToolNames.includes(t),
   );
 
-  // Combine all tools
-  const allTools: AnyDeclarativeTool[] = [...mcpTools, visualDelegationTool];
+  // Create all tools - visual delegation only if visual tools are available
+  const allTools: AnyDeclarativeTool[] = [...mcpTools];
+
+  if (missingVisualTools.length > 0) {
+    debugLogger.log(
+      `Visual tools missing (${missingVisualTools.join(', ')}). ` +
+        `Visual agent delegation disabled. Ensure chrome-devtools-mcp is started with --experimental-vision.`,
+    );
+    if (printOutput) {
+      printOutput(
+        `⚠️ Visual tools unavailable - coordinate-based actions disabled.`,
+      );
+    }
+  } else {
+    // Create visual agent delegation tool only if visual tools are available
+    const visualDelegationTool = createDelegateToVisualAgentTool(
+      browserManager,
+      config,
+      messageBus,
+    );
+    allTools.push(visualDelegationTool);
+  }
 
   debugLogger.log(
     `Created ${allTools.length} tools for browser agent: ` +
