@@ -17,6 +17,8 @@
 
 import type { FunctionDeclaration } from '@google/genai';
 import type { Tool as McpTool } from '@modelcontextprotocol/sdk/types.js';
+import type {
+  ToolConfirmationOutcome} from '../../tools/tools.js';
 import {
   DeclarativeTool,
   BaseToolInvocation,
@@ -24,6 +26,7 @@ import {
   type ToolResult,
   type ToolInvocation,
   type ToolCallConfirmationDetails,
+  type PolicyUpdateOptions,
 } from '../../tools/tools.js';
 import type { MessageBus } from '../../confirmation-bus/message-bus.js';
 import type { BrowserManager, McpToolCallResult } from './browserManager.js';
@@ -49,16 +52,31 @@ class McpToolInvocation extends BaseToolInvocation<
     return `Calling MCP tool: ${this.toolName}`;
   }
 
-  /**
-   * TODO: Remove this override once subagent tool confirmation is implemented
-   * in the framework. Currently, subagent tools auto-approve by bypassing
-   * the MessageBus confirmation flow. This matches how codebase_investigator
-   * and other subagents work.
-   */
-  override async shouldConfirmExecute(
+  protected override async getConfirmationDetails(
     _abortSignal: AbortSignal,
   ): Promise<ToolCallConfirmationDetails | false> {
-    return false;
+    if (!this.messageBus) {
+      return false;
+    }
+
+    return {
+      type: 'mcp',
+      title: `Confirm MCP Tool: ${this.toolName}`,
+      serverName: 'browser-agent',
+      toolName: this.toolName,
+      toolDisplayName: this.toolName,
+      onConfirm: async (outcome: ToolConfirmationOutcome) => {
+        await this.publishPolicyUpdate(outcome);
+      },
+    };
+  }
+
+  protected override getPolicyUpdateOptions(
+    _outcome: ToolConfirmationOutcome,
+  ): PolicyUpdateOptions | undefined {
+    return {
+      mcpName: 'browser-agent',
+    };
   }
 
   async execute(): Promise<ToolResult> {
