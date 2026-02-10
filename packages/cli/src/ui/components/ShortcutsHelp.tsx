@@ -52,7 +52,7 @@ export const ShortcutsHelp: React.FC = () => {
 
   return (
     <Box flexDirection="column" width="100%">
-      <SectionHeader title="Shortcuts (for more, see /help)" />
+      <SectionHeader title=" Shortcuts" subtitle="See /help for more" />
       <Box flexDirection="row" flexWrap="wrap" paddingLeft={1} paddingRight={2}>
         {items.map((item, index) => (
           <Box
