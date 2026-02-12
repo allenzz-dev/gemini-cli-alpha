@@ -23,6 +23,17 @@ import {
   GLOB_DEFINITION,
   LS_DEFINITION,
   getShellDefinition,
+  WEB_SEARCH_DEFINITION,
+  WEB_FETCH_DEFINITION,
+  READ_MANY_FILES_DEFINITION,
+  EDIT_DEFINITION,
+  MEMORY_DEFINITION,
+  WRITE_TODOS_DEFINITION,
+  GET_INTERNAL_DOCS_DEFINITION,
+  ASK_USER_DEFINITION,
+  ENTER_PLAN_MODE_DEFINITION,
+  getExitPlanModeDefinition,
+  getActivateSkillDefinition,
 } from './coreTools.js';
 
 describe('coreTools snapshots for specific models', () => {
@@ -57,6 +68,23 @@ describe('coreTools snapshots for specific models', () => {
     {
       name: 'run_shell_command',
       definition: getShellDefinition(true, true),
+    },
+    { name: 'google_web_search', definition: WEB_SEARCH_DEFINITION },
+    { name: 'web_fetch', definition: WEB_FETCH_DEFINITION },
+    { name: 'read_many_files', definition: READ_MANY_FILES_DEFINITION },
+    { name: 'replace', definition: EDIT_DEFINITION },
+    { name: 'save_memory', definition: MEMORY_DEFINITION },
+    { name: 'write_todos', definition: WRITE_TODOS_DEFINITION },
+    { name: 'get_internal_docs', definition: GET_INTERNAL_DOCS_DEFINITION },
+    { name: 'ask_user', definition: ASK_USER_DEFINITION },
+    { name: 'enter_plan_mode', definition: ENTER_PLAN_MODE_DEFINITION },
+    {
+      name: 'exit_plan_mode',
+      definition: getExitPlanModeDefinition('/mock/plans'),
+    },
+    {
+      name: 'activate_skill',
+      definition: getActivateSkillDefinition(['skill1', 'skill2']),
     },
   ];
 

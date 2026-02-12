@@ -5,12 +5,23 @@
  */
 
 import {
+  ACTIVATE_SKILL_TOOL_NAME,
+  ASK_USER_TOOL_NAME,
+  EDIT_TOOL_NAME,
+  ENTER_PLAN_MODE_TOOL_NAME,
+  EXIT_PLAN_MODE_TOOL_NAME,
+  GET_INTERNAL_DOCS_TOOL_NAME,
   GLOB_TOOL_NAME,
   GREP_TOOL_NAME,
   LS_TOOL_NAME,
+  MEMORY_TOOL_NAME,
   READ_FILE_TOOL_NAME,
+  READ_MANY_FILES_TOOL_NAME,
   SHELL_TOOL_NAME,
+  WEB_FETCH_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
+  WRITE_TODOS_TOOL_NAME,
 } from './definitions/coreTools.js';
 
 // Centralized constants for tool names.
@@ -18,29 +29,29 @@ import {
 // need to reference a tool's name without importing the tool's implementation.
 
 export {
+  ACTIVATE_SKILL_TOOL_NAME,
+  ASK_USER_TOOL_NAME,
+  EDIT_TOOL_NAME,
+  ENTER_PLAN_MODE_TOOL_NAME,
+  EXIT_PLAN_MODE_TOOL_NAME,
+  GET_INTERNAL_DOCS_TOOL_NAME,
   GLOB_TOOL_NAME,
   GREP_TOOL_NAME,
   LS_TOOL_NAME,
+  MEMORY_TOOL_NAME,
   READ_FILE_TOOL_NAME,
+  READ_MANY_FILES_TOOL_NAME,
   SHELL_TOOL_NAME,
+  WEB_FETCH_TOOL_NAME,
+  WEB_SEARCH_TOOL_NAME,
   WRITE_FILE_TOOL_NAME,
+  WRITE_TODOS_TOOL_NAME,
 };
 
-export const WRITE_TODOS_TOOL_NAME = 'write_todos';
-export const WEB_SEARCH_TOOL_NAME = 'google_web_search';
-export const WEB_FETCH_TOOL_NAME = 'web_fetch';
-export const EDIT_TOOL_NAME = 'replace';
-export const READ_MANY_FILES_TOOL_NAME = 'read_many_files';
+export const ASK_USER_DISPLAY_NAME = 'Ask User';
 export const LS_TOOL_NAME_LEGACY = 'list_directory'; // Just to be safe if anything used the old exported name directly
 
-export const MEMORY_TOOL_NAME = 'save_memory';
-export const GET_INTERNAL_DOCS_TOOL_NAME = 'get_internal_docs';
-export const ACTIVATE_SKILL_TOOL_NAME = 'activate_skill';
 export const EDIT_TOOL_NAMES = new Set([EDIT_TOOL_NAME, WRITE_FILE_TOOL_NAME]);
-export const ASK_USER_TOOL_NAME = 'ask_user';
-export const ASK_USER_DISPLAY_NAME = 'Ask User';
-export const EXIT_PLAN_MODE_TOOL_NAME = 'exit_plan_mode';
-export const ENTER_PLAN_MODE_TOOL_NAME = 'enter_plan_mode';
 
 /**
  * Mapping of legacy tool names to their current names.
